@@ -1,0 +1,209 @@
+## ----setup, include=FALSE----------------------------------------------------------------------------------------
+knitr::opts_chunk$set(echo = TRUE)
+
+
+## ----------------------------------------------------------------------------------------------------------------
+library(igraph)
+library(tidyverse)
+library(leaflet)
+library(geosphere)
+
+
+## ----------------------------------------------------------------------------------------------------------------
+nodes_df <- read.csv("/Users/henri/Desktop/QBS122 Project/Data/Reduced_node.csv", stringsAsFactors = FALSE, check.names = FALSE)
+edges_df <- read.csv("/Users/henri/Desktop/QBS122 Project/Data/Reduced_edge.csv", stringsAsFactors = FALSE, check.names = FALSE)
+head(nodes_df)
+head(edges_df)
+
+
+## ----------------------------------------------------------------------------------------------------------------
+g <- graph_from_data_frame(
+  d = edges_df %>% rename(from = Source, to = Target),
+  vertices = nodes_df %>% rename(name = Id),
+  directed = FALSE
+)
+
+V(g)$label   <- nodes_df$Label       # Add a "label" attribute to each vertex
+V(g)$owner   <- nodes_df$Owner
+V(g)$role    <- nodes_df$Role
+V(g)$lon     <- nodes_df$Longitude
+V(g)$lat     <- nodes_df$Latitude
+
+
+## ----------------------------------------------------------------------------------------------------------------
+set.seed(42) 
+layout_mat <- layout_with_fr(g)
+plot(
+  g,
+  layout = layout_mat,
+  vertex.size = 5,
+  vertex.label = NA, 
+  vertex.color = "skyblue",
+  edge.color   = "gray80"
+)
+
+
+
+## ----------------------------------------------------------------------------------------------------------------
+coords <- data.frame(
+  id    = V(g)$name,
+  lon   = as.numeric(V(g)$lon),
+  lat   = as.numeric(V(g)$lat),
+  label = V(g)$label,
+  stringsAsFactors = FALSE
+)
+
+min_lon <- min(coords$lon, na.rm = TRUE)
+max_lon <- max(coords$lon, na.rm = TRUE)
+min_lat <- min(coords$lat, na.rm = TRUE)
+max_lat <- max(coords$lat, na.rm = TRUE)
+
+m <- leaflet(data = coords) %>%
+  addTiles()
+
+m <- m %>%
+  addCircleMarkers(
+    lng        = ~lon,
+    lat        = ~lat,
+    label      = ~label,  
+    radius     = 1,
+    color      = "dodgerblue",
+    fillOpacity= 0.7
+  )
+m
+
+
+## ----------------------------------------------------------------------------------------------------------------
+layout_geo <- cbind(
+  as.numeric(V(g)$lon),
+  as.numeric(V(g)$lat)
+)
+
+plot(
+  g,
+  layout       = layout_geo,
+  asp          = 1, 
+  vertex.size  = 5,       
+  vertex.label = NA,        
+  vertex.color = "skyblue",
+  edge.color   = "gray80",
+  main         = "Network Plotted on Geographic Coordinates"
+)
+
+
+## ----------------------------------------------------------------------------------------------------------------
+num_nodes <- vcount(g)
+num_edges <- ecount(g)
+dens       <- edge_density(g, loops = FALSE)
+avg_path   <- mean_distance(g, directed = FALSE, unconnected = TRUE)
+net_diam   <- diameter(g, directed = FALSE, unconnected = TRUE)
+clust_glob <- transitivity(g, type = "global")
+clust_loc  <- transitivity(g, type = "local")
+avg_clust  <- mean(clust_loc, na.rm = TRUE)
+avg_deg    <- mean(degree(g))
+deg_vals   <- degree(g)
+deg_summary<- summary(deg_vals)
+
+comm             <- cluster_louvain(g)
+V(g)$community   <- membership(comm)
+comm_sizes       <- sizes(comm)
+
+# Print out a summary of network-level metrics
+cat("—— Network Summary Metrics ——\n")
+cat("Number of nodes: ", num_nodes, "\n")
+cat("Number of edges: ", num_edges, "\n")
+cat("Density: ", round(dens, 4), "\n")
+cat("Average path length: ", round(avg_path, 4), "\n")
+cat("Diameter: ", net_diam, "\n")
+cat("Global clustering coefficient: ", round(clust_glob, 4), "\n")
+cat("Average local clustering coefficient: ", round(avg_clust, 4), "\n")
+cat("Average degree: ", round(avg_deg, 4), "\n")
+cat("Degree distribution summary:\n"); print(deg_summary)
+cat("Number of communities detected: ", length(comm_sizes), "\n")
+cat("Sizes of each community:\n"); print(comm_sizes)
+
+
+
+## ----------------------------------------------------------------------------------------------------------------
+deg_cent       <- degree(g, normalized = TRUE)
+
+# Betweenness centrality (normalized to [0,1])
+betw_cent      <- betweenness(g, normalized = TRUE)
+
+# Closeness centrality (normalized to [0,1])
+closeness_cent <- closeness(g, normalized = TRUE)
+
+# Store these centralities back into the graph’s vertex attributes
+V(g)$degree_c      <- deg_cent
+V(g)$betweenness_c <- betw_cent
+V(g)$closeness_c   <- closeness_cent
+
+# Build a data frame of node‐level statistics and attributes
+node_positions_df <- data.frame(
+  id            = V(g)$name,
+  label         = V(g)$label,
+  degree_c      = deg_cent,
+  betweenness_c = betw_cent,
+  closeness_c   = closeness_cent,
+  community     = V(g)$community,
+  stringsAsFactors = FALSE
+)
+
+# Show the top 5 nodes by degree centrality
+cat("—— Node‐Level Centrality Rankings (Top 5) ——\n")
+cat("Top 5 by Degree Centrality:\n")
+print(
+  node_positions_df %>%
+    arrange(desc(degree_c)) %>%
+    slice(1:5)
+)
+cat("Top 5 by Betweenness Centrality:\n")
+print(
+  node_positions_df %>%
+    arrange(desc(betweenness_c)) %>%
+    slice(1:5)
+)
+
+## ----------------------------------------------------------------------------------------------------------------
+# —— D. Compute a layout and plot the network —— 
+
+set.seed(2025)  # For reproducibility of the layout
+layout_mat <- layout_with_fr(g)  # Fruchterman–Reingold force‐directed layout
+
+# Store the x–y coordinates as vertex attributes
+V(g)$x_coord <- layout_mat[,1]
+V(g)$y_coord <- layout_mat[,2]
+
+# Add these coordinates to our node_positions_df
+node_positions_df$x <- V(g)$x_coord
+node_positions_df$y <- V(g)$y_coord
+
+# Basic scatter‐plot visualization
+plot(
+  node_positions_df$x,
+  node_positions_df$y,
+  pch  = 21,
+  bg   = ifelse(node_positions_df$community == 1, "tomato", "skyblue"),  
+        # use color “tomato” for community 1, “skyblue” for all others (as an example)
+  cex  = node_positions_df$degree_c * 10 + 0.5,  
+        # scale each point’s size by its (normalized) degree‐centrality
+  xlab = "X (Fruchterman–Reingold)",
+  ylab = "Y (Fruchterman–Reingold)",
+  main = "Network Layout (FR)\nNode Size ∝ Degree Centrality, Color ∝ Community"
+)
+
+# Label the top 5 highest‐degree nodes
+top5_deg_nodes <- node_positions_df %>%
+  arrange(desc(degree_c)) %>%
+  slice(1:5)
+
+text(
+  top5_deg_nodes$x,
+  top5_deg_nodes$y,
+  labels = top5_deg_nodes$label,
+  pos    = 3,       # position text above the point
+  cex    = 0.8,
+  col    = "darkred"
+)
+
+
