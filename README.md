@@ -101,4 +101,4 @@ Kim, H., Olave-Rojas, D., Álvarez-Miranda, E. Son, S.-W. (2018). In-depth data 
 
 ## Contact
 
-For any questions or inquiries, please contact Henry Cui at haoyang.cui.gr@dartmouth.edu.
+For any questions or inquiries, please contact Henry Cui at haoyang.cui.hse@dartmouth.edu.
